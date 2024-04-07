@@ -48,12 +48,13 @@ html, body {
 	justify-content: space-evenly;
 }
 
-.weather-array {
+#weather-array {
 	display: flex;
 	max-width: 100%;
 	overflow-x: auto;
 	overflow-y: hidden;
-	gap: 5px;
+	gap: 10px;
+	padding: 5px;
 }
 
 .weather-cell {

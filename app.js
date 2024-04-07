@@ -56,7 +56,7 @@ keep all weather, location and activity information IMPLIED
 suggestion categories: [long/short] sleeves, [winter/wind/light/waterproof] jacket, thermal clothing, [winter/tourist] shoes, umbrella, other
 leave out categories that aren't applicable
 do not mention location data, also don't suggest umbrella under high winds
-add precautions related to weather
+add precautions related to weather but only potentially dangerous ones
 -----------------
 answer context: "What should I wear?"
 answer format: "this, this and that"
@@ -138,7 +138,7 @@ app.post('/advice', async (req, res) => {
 	// get data from meteo api
 	let meteoJSON;
 	try {
-		const resp = await fetch(`https://climathon.iblsoft.com/data/gfs-0.5deg/edr/collections/single-layer/position?coords=POINT(${lon} ${lat})&parameter-name=temperature_gnd-surf,snow-depth_gnd-surf,percent-frozen-precipitation_gnd-surf,wind-speed-gust_gnd-surf,pressure_gnd-surf,total-cloud-cover_atmosphere,visibility_gnd-surf,ice-cover_gnd-surf,relative-humidity_atmosphere&datetime=${isoDates.join(",")}&f=CoverageJSON`);
+		const resp = await fetch(`https://climathon.iblsoft.com/data/gfs-0.5deg/edr/collections/single-layer/position?coords=POINT(${lon} ${lat})&parameter-name=temperature_gnd-surf,snow-depth_gnd-surf,percent-frozen-precipitation_gnd-surf,wind-speed-gust_gnd-surf,pressure_gnd-surf,total-cloud-cover_atmosphere,visibility_gnd-surf,ice-cover_gnd-surf,relative-humidity_0-isoterm&datetime=${isoDates.join(",")}&f=CoverageJSON`);
 		meteoJSON = await resp.json();
 	} catch {
 		console.log("Meteo request 1 failed");
@@ -215,7 +215,7 @@ app.post('/advice', async (req, res) => {
 		minmax("cloud_coverage", "total-cloud-cover_atmosphere");
 		minmax("visibility", "visibility_gnd-surf");
 		minmax("ice_cover", "ice-cover_gnd-surf");
-		minmax("humidity", "relative-humidity_atmosphere");
+		minmax("humidity", "relative-humidity_0-isoterm");		
 
 		const fp = getEntry("percent-frozen-precipitation_gnd-surf").value;
 		frozenPercipitation = Math.max(frozenPercipitation || fp, fp);
@@ -224,7 +224,7 @@ app.post('/advice', async (req, res) => {
 	// helper functions for formatting data
 	const clamp = (val, min = 0, max = 1) => Math.min(max, Math.max(min, val));
 	const normalize = (val, max = 100) => clamp(val, 0, max) / max;
-	const valsplit = (val, namesSplit, nameEmpty = undefined, treshold = 0.1) => val > treshold ? namesSplit[Math.floor(val / (1 / namesSplit.length + 0.01))] : (typeof nameEmpty == undefined ? nameEmpty : namesSplit[0]);
+	const valsplit = (val, namesSplit, nameEmpty = undefined, treshold = 0.1) => val > treshold ? namesSplit[Math.floor(val / (1 / namesSplit.length + 0.01))] : (typeof nameEmpty !== undefined ? nameEmpty : namesSplit[0]);
 	const formatMm = (minmax, map = v=>v) => map(minmax.max) !== map(minmax.min) ? [minmax.min, minmax.max].filter(x => x !== null && x !== undefined).map(map).join(" to ") : map(minmax.max);
 
 	// amount and type of precipitation
@@ -235,13 +235,13 @@ app.post('/advice', async (req, res) => {
 	let pressureTypeMin = "low";
 	if (minmaxData.pressure.min > 1002.5 && minmaxData.pressure.min <= 1031.5) {
 		pressureTypeMin = "medium";
-	} else if (minmaxData.pressure.min >= 1031.5) {
+	} else if (minmaxData.pressure.min > 1031.5) {
 		pressureTypeMin = "high";
 	}
 	let pressureTypeMax = "low";
 	if (minmaxData.pressure.max > 1002.5 && minmaxData.pressure.max <= 1031.5) {
 		pressureTypeMax = "medium";
-	} else if (minmaxData.pressure.max >= 1031.5) {
+	} else if (minmaxData.pressure.max > 1031.5) {
 		pressureTypeMax = "high";
 	}
 
@@ -250,8 +250,8 @@ app.post('/advice', async (req, res) => {
 	const cloudCoverageTypeMax = valsplit(normalize(minmaxData.cloud_coverage.max), ["clear", "partial", "overcast", "thick"])
 
 	// visibility in haze
-	const fogTypeMin = valsplit(normalize(minmaxData.visibility.min, 50_000), [null, "haze", "light fog", "thick fog"]);
-	const fogTypeMax = valsplit(normalize(minmaxData.visibility.max, 50_000), [null, "haze", "light fog", "thick fog"]);
+	const fogTypeMin = valsplit(normalize(minmaxData.visibility.min, 50_000), [null, null, null, "haze", "light fog", "thick fog"]);
+	const fogTypeMax = valsplit(normalize(minmaxData.visibility.max, 50_000), [null, null, null, "haze", "light fog", "thick fog"]);
 
 	// low medium or high humidity
 	const humidityTypeMin = valsplit(normalize(minmaxData.humidity.min), ["low", "medium", "high", "very high"]);
@@ -273,9 +273,11 @@ app.post('/advice', async (req, res) => {
 	}
 
 	// filter out invalid and hidden values
-	data = Object.entries(data).filter(e => e[1] === null || e[1] === undefined || e[1] === "");
+	data = Object.entries(data).filter(e => !(e[1] === null || e[1] === undefined || e[1] === ""));
 
 	const contentMsg = data.map(x => x.join(": ")).join("\n");
+
+	console.log(contentMsg);
 
 	// query ChatGPT to generate description
 	const gptResponse = await openai.chat.completions.create({
@@ -293,6 +295,180 @@ app.post('/advice', async (req, res) => {
 })
 
 
+app.post('/weather', async (req, res) => {
+	const NOW = new Date();
+	NOW.setMinutes(NOW.getMinutes() - 1); // account for request delay
+
+	const MAX_DATE = new Date();
+	MAX_DATE.setDate(NOW.getDate() + process.env.FORECAST_MAX_DAYS);
+	
+	// meteo params
+	const lat = Number(req.query?.lat);
+	if (isNaN(lat) || lat < -90 || lat > 90)
+		return res.status(400).send("Invalid latitude");
+
+	const lon = Number(req.query?.lon);
+	if (isNaN(lon) || lon < -180 || lon > 180)
+		return res.status(400).send("Invalid longitude");
+
+	const startDate = Number(req.query.startDate);
+	if (isNaN(startDate) || startDate < NOW.valueOf() || startDate > MAX_DATE.valueOf())
+		return res.status(400).send("Invalid starting date");
+
+	const endDate = Number(req.query.endDate);
+	if (isNaN(endDate) || endDate < NOW.valueOf() || endDate > MAX_DATE.valueOf())
+		return res.status(400).send("Invalid end date");
+
+	if (startDate > endDate)
+		return res.status(400).send("Start date must be before end date");
+
+	const isoDates = [];
+	for (let d = startDate; d <= endDate; d += 24 * 60 * 60 * 1000) {
+		let midnight = new Date(d)
+		midnight.setHours(0);
+		midnight.setMinutes(0);
+		midnight.setSeconds(0);
+		midnight.setMilliseconds(0);
+		isoDates.push(midnight.toISOString());
+
+		let noon = new Date(d)
+		noon.setHours(12);
+		noon.setMinutes(0);
+		noon.setSeconds(0);
+		noon.setMilliseconds(0);
+		isoDates.push(noon.toISOString());
+	}
+	
+
+	// get data from meteo api
+	let meteoJSON;
+	try {
+		const resp = await fetch(`https://climathon.iblsoft.com/data/gfs-0.5deg/edr/collections/single-layer/position?coords=POINT(${lon} ${lat})&parameter-name=temperature_gnd-surf,total-cloud-cover_atmosphere&datetime=${isoDates.join(",")}&f=CoverageJSON`);
+		meteoJSON = await resp.json();
+	} catch {
+		console.log("Meteo request 1 failed");
+		return res.sendStatus(500);
+	}
+
+	// split meteo data into days
+	const paramCount = Object.keys(meteoJSON.parameters).length
+	const samples = chunkArray(meteoJSON.coverages, paramCount); // should separate into days by `domain.time`
+
+	// calculate interval for calculating perticipation
+	const startDateMidnight = (new Date(startDate));
+	startDateMidnight.setHours(0);
+	startDateMidnight.setMinutes(0);
+	startDateMidnight.setSeconds(0);
+	startDateMidnight.setMilliseconds(0);
+	const isoDayStart = startDateMidnight.toISOString();
+
+	const endDateMidnight = (new Date(endDate));
+	endDateMidnight.setHours(24 - 6);
+	endDateMidnight.setMinutes(0);
+	endDateMidnight.setSeconds(0);
+	endDateMidnight.setMilliseconds(0);
+	const isoDayEnd = endDateMidnight.toISOString(); // +18 hours because of 6h intervals
+
+	// get rain amounts
+	let rainJSON;
+	try {
+		const resp = await fetch(`https://climathon.iblsoft.com/data/gefs-0.25deg/edr/collections/single-level_2/position?coords=POINT(${lon} ${lat})&parameter-name=total-precipitation_gnd-surf_positively-perturbed_stat:acc/PT6H&datetime=${isoDayStart}/${isoDayEnd}&f=CoverageJSON`);
+		rainJSON = await resp.json();
+	} catch {
+		console.log("Meteo request 2 failed");
+		return res.sendStatus(500);
+	}
+
+	// calculate rain percentage from rain amounts
+	const coverageCount = rainJSON.coverages.length;
+	let rainPercent = 0;
+	for (var i = 0; i < coverageCount; i++) {
+		const nazov = "total-precipitation_gnd-surf_positively-perturbed_stat:acc/PT6H_mem-" + (Math.floor(i / (coverageCount / 30)) + 1);
+		rainPercent += rainJSON.coverages[i].ranges[nazov].values[0] > 0.1;
+	}
+	rainPercent /= coverageCount;
+
+	const days = new Array(samples.length/2).fill().map(()=>Object.fromEntries(Object.entries({"name": null, "dayTemp": null, "nightTemp": null, "cloudCoverage": null, "precipitation": null})));
+	for (let i = 0; i < samples.length; i++) {
+		const sample = samples[i];
+		const dayI = Math.floor(i / 2);
+		
+		const getParam = name => Object.entries(meteoJSON.parameters).findIndex(e => e[0] == name);
+		const getEntry = param => ({ value: Object.values(sample[getParam(param)]?.ranges || {}).at(0).values.at(0), unit: meteoJSON.parameters[getParam(param)]?.unit?.symbol });
+		
+		const weekday = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+
+		if (i%2 == 0) {
+			days[dayI].nightTemp = Math.floor(getEntry("temperature_gnd-surf").value-273.15)
+		} else {
+			days[dayI].name = weekday[new Date(isoDates[i]).getDay() || 0]
+			days[dayI].dayTemp = Math.floor(getEntry("temperature_gnd-surf").value-273.15)
+			days[dayI].cloudCoverage = Math.floor(("total-cloud-cover_atmosphere").value)
+			days[dayI].precipitation = Math.floor(rainPercent*100)
+		}
+
+	}
+
+	res.send(days);
+})
+
+
+app.get("/alerts", async (req, res) => {
+	// get alerts from api
+	const apiKey = process.env.WEATHERBIT_API_KEY
+	let alertJSON;
+	try {
+		const resp = await fetch(`https://api.weatherbit.io/v2.0/alerts?lat=${lat}&lon=${lon}&key=${apiKey}`);
+		alertJSON = await resp.json();
+	} catch {
+		console.log("Alert request failed");
+		return res.sendStatus(500);
+	}
+
+	// store unique output alerts
+	const alerts = [];
+
+	// capture unique alerts
+	var alertNames = new Set(alertJSON.alerts.map(obj => obj.title));
+	alertNames.forEach((alertName) => {
+		var alert = alertJSON.alerts.find(obj => obj.title == alertName);
+		alerts.push({
+			"title": alert.title,
+			"description": alert.description,
+			"severity": alert.severity
+		});
+	});
+});
+	
+app.get("/air", async (req, res) => {
+	// get air info from api
+	const apiKey = process.env.WEATHERBIT_API_KEY
+	let airJSON;
+	try {
+		const resp = await fetch(`https://api.weatherbit.io/v2.0/current/airquality?lat=${lat}&lon=${lon}{&key=${apiKey}`);
+		airJSON = await resp.json();
+	} catch {
+		console.log("Air info request failed");
+		return res.sendStatus(500);
+	}
+
+	// store unique output alerts
+	const air = [];
+
+	const clamp = (val, min = 0, max = 1) => Math.min(max, Math.max(min, val));
+	const normalize = (val, max = 100) => clamp(val, 0, max) / max;
+	const valsplit = (val, namesSplit, nameEmpty = undefined, treshold = 0.1) => val > treshold ? namesSplit[Math.floor(val / (1 / namesSplit.length + 0.01))] : (typeof nameEmpty == undefined ? nameEmpty : namesSplit[0]);
+
+	// capture unique air info
+	const aqi = output.data[0].aqi;
+	var aqiText = valsplit(normalize(aqi, 300), ["Good", "Moderate", "Unhealthy", "Very Unhealthy", "Hazardous"])
+	air.push({
+		aqi: output.data[0].aqi,
+		aqiText: aqiText,
+		highest_pollen_level: Math.max(output.data[0].pollen_level_grass, output.data[0].pollen_level_tree, output.data[0].pollen_level_weed),
+		mold_level: output.data[0].mold_level
+	});
+})
 
 
 
