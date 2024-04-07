@@ -217,7 +217,7 @@ function getAdvice() {
         getDays.onreadystatechange = function () {
             if (this.readyState == 4) {
                 document.getElementById("weather-array").innerHTML = ""
-                var days = JSON.parse(getDays.responseText)
+                var days = JSON.parse(getDays.responseText).content
                 days.forEach((day) => {
                     document.getElementById("weather-array").insertAdjacentHTML("beforeend", weatherCell(day.name, weatherEmoji(day.precipitation, day.cloud_coverage), day.dayTemp + "°C", day.nightTemp + "°C"));
                 })

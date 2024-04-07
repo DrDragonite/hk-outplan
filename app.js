@@ -409,7 +409,7 @@ app.post('/weather', async (req, res) => {
 
 	}
 
-	res.send(days);
+	res.send({content:days});
 })
 
 
@@ -445,6 +445,8 @@ app.get("/alerts", async (req, res) => {
 			"severity": alert.severity
 		});
 	});
+
+	res.send({content:alerts})
 });
 	
 app.get("/air", async (req, res) => {
@@ -482,6 +484,8 @@ app.get("/air", async (req, res) => {
 		highest_pollen_level: Math.max(output.data[0].pollen_level_grass, output.data[0].pollen_level_tree, output.data[0].pollen_level_weed),
 		mold_level: output.data[0].mold_level
 	});
+
+	res.send({content:air});
 })
 
 
