@@ -157,7 +157,7 @@ app.post('/advice', async (req, res) => {
 	startDateMidnight.setMilliseconds(0);
 	const isoDayStart = startDateMidnight.toISOString();
 
-	const endDateMidnight = (new Date(startDate));
+	const endDateMidnight = (new Date(endDate));
 	endDateMidnight.setHours(24 - 6);
 	endDateMidnight.setMinutes(0);
 	endDateMidnight.setSeconds(0);
@@ -167,16 +167,12 @@ app.post('/advice', async (req, res) => {
 	// get rain amounts
 	let rainJSON;
 	try {
-		console.log(lat, lon, isoDayStart, isoDayEnd);
 		const resp = await fetch(`https://climathon.iblsoft.com/data/gefs-0.25deg/edr/collections/single-level_2/position?coords=POINT(${lon} ${lat})&parameter-name=total-precipitation_gnd-surf_positively-perturbed_stat:acc/PT6H&datetime=${isoDayStart}/${isoDayEnd}&f=CoverageJSON`);
-		console.log(resp);
 		rainJSON = await resp.json();
 	} catch {
 		console.log("Meteo request 2 failed");
 		return res.sendStatus(500);
 	}
-
-	console.log(rainJSON);
 
 	// calculate rain percentage from rain amounts
 	const coverageCount = rainJSON.coverages.length;
@@ -186,6 +182,7 @@ app.post('/advice', async (req, res) => {
 		rainPercent += rainJSON.coverages[i].ranges[nazov].values[0] > 0.1;
 	}
 	rainPercent /= coverageCount;
+	let frozenPercipitation = null;
 
 	const minmaxData = {
 		"temperature": { min: null, max: null },
@@ -201,9 +198,9 @@ app.post('/advice', async (req, res) => {
 	for (let sample of samples) {
 		const getParam = name => Object.entries(meteoJSON.parameters).findIndex(e => e[0] == name);
 		const getEntry = param => ({ value: Object.values(sample[getParam(param)]?.ranges || {}).at(0).values.at(0), unit: meteoJSON.parameters[getParam(param)]?.unit?.symbol });
-		const v = (val, def) => val === null ? def : val;
+		const v = (val, def) => val === null ? def : (isNaN(val) ? val : Number(val));
 		const minmax = (key, param) => {
-			value = getEntry(param);
+			let value = getEntry(param).value;
 			minmaxData[key] = {
 				min: Math.min(v(minmaxData[key].min, value), value),
 				max: Math.max(v(minmaxData[key].max, value), value)
@@ -219,67 +216,61 @@ app.post('/advice', async (req, res) => {
 		minmax("visibility", "visibility_gnd-surf");
 		minmax("ice_cover", "ice-cover_gnd-surf");
 		minmax("humidity", "relative-humidity_atmosphere");
+
+		const fp = getEntry("percent-frozen-precipitation_gnd-surf").value;
+		frozenPercipitation = Math.max(frozenPercipitation || fp, fp);
 	}
 
 	// helper functions for formatting data
-	const clamp = (val, min = 0, max = 1) => Math.min(max, Math.min(min, val));
+	const clamp = (val, min = 0, max = 1) => Math.min(max, Math.max(min, val));
 	const normalize = (val, max = 100) => clamp(val, 0, max) / max;
 	const valsplit = (val, namesSplit, nameEmpty = undefined, treshold = 0.1) => val > treshold ? namesSplit[Math.floor(val / (1 / namesSplit.length + 0.01))] : (typeof nameEmpty == undefined ? nameEmpty : namesSplit[0]);
-
-	// temperature data
-	const temperature = getEntry("temperature_gnd-surf");
+	const formatMm = (minmax, map = v=>v) => map(minmax.max) !== map(minmax.min) ? [minmax.min, minmax.max].filter(x => x !== null && x !== undefined).map(map).join(" to ") : map(minmax.max);
 
 	// amount and type of precipitation
 	const precipitation = valsplit(clamp(rainPercent), ["low", "medium", "high"], "no");
-	const frozenPercipitation = getEntry("percent-frozen-precipitation_gnd-surf");
-	const perticipationType = valsplit(normalize(frozenPercipitation.value), ["rain with snow", "snow"], "rain");
+	const perticipationType = valsplit(normalize(frozenPercipitation), ["rain with snow", "snow"], "rain");
 
-	// wind gust in m/s
-	const windGust = getEntry("wind-speed-gust_gnd-surf");
-
-	// low medium or high pressure
-	const pressure = getEntry("pressure_gnd-surf");
-	let pressureType = "low";
-	if (pressure.value > 1002.5 && pressure.value <= 1031.5) {
-		pressureType = "medium";
-	} else if (pressure.value >= 1031.5) {
-		pressureType = "high";
+	// pressure is low, medium or high
+	let pressureTypeMin = "low";
+	if (minmaxData.pressure.min > 1002.5 && minmaxData.pressure.min <= 1031.5) {
+		pressureTypeMin = "medium";
+	} else if (minmaxData.pressure.min >= 1031.5) {
+		pressureTypeMin = "high";
+	}
+	let pressureTypeMax = "low";
+	if (minmaxData.pressure.max > 1002.5 && minmaxData.pressure.max <= 1031.5) {
+		pressureTypeMax = "medium";
+	} else if (minmaxData.pressure.max >= 1031.5) {
+		pressureTypeMax = "high";
 	}
 
-	// amount of snow in meters
-	const snowDepth = getEntry("snow-depth_gnd-surf");
-
 	// amount of cloud coverage
-	const cloudCoverage = getEntry("total-cloud-cover_atmosphere");
-	const cloudCoverageType = valsplit(normalize(cloudCoverage.value), ["clear", "partial", "overcast", "thick"])
+	const cloudCoverageTypeMin = valsplit(normalize(minmaxData.cloud_coverage.min), ["clear", "partial", "overcast", "thick"])
+	const cloudCoverageTypeMax = valsplit(normalize(minmaxData.cloud_coverage.max), ["clear", "partial", "overcast", "thick"])
 
 	// visibility in haze
-	const visibility = getEntry("visibility_gnd-surf");
-	const fogType = valsplit(normalize(visibility.value, 50_000), [null, "haze", "light fog", "thick fog"]);
-
-	// ice cover yes or not mentioned
-	const iceCover = getEntry("ice-cover_gnd-surf");
+	const fogTypeMin = valsplit(normalize(minmaxData.visibility.min, 50_000), [null, "haze", "light fog", "thick fog"]);
+	const fogTypeMax = valsplit(normalize(minmaxData.visibility.max, 50_000), [null, "haze", "light fog", "thick fog"]);
 
 	// low medium or high humidity
-	const humidity = getEntry("relative-humidity_atmosphere");
-	const humidityType = valsplit(normalize(humidity.value), ["low", "medium", "high", "very high"]);
+	const humidityTypeMin = valsplit(normalize(minmaxData.humidity.min), ["low", "medium", "high", "very high"]);
+	const humidityTypeMax = valsplit(normalize(minmaxData.humidity.max), ["low", "medium", "high", "very high"]);
 
 	// compile data into readable format for ChatGPT
 	let data = {
-		"Temperature": Math.floor(temperature.value - 273.15) + " celsius",
+		"Temperature": formatMm(minmaxData.temperature, v=>Math.floor(v-273.15)) + " degrees celsius",
 		"Precipitation": `${precipitation} chance of ${perticipationType}`,
-		"Wind gusts": windGust.value + " " + windGust.unit,
-		"Pressure": pressureType,
-		"Snow depth": snowDepth.value && snowDepth.value + " " + snowDepth.unit,
-		"Cloud coverage": cloudCoverageType,
-		"Fog type": fogType,
-		"Ice cover": iceCover.value ? "yes" : null,
-		"Humidity": humidityType,
+		"Wind gusts": formatMm(minmaxData.wind_gust, Math.floor) + " m/s",
+		"Pressure": formatMm({"min": pressureTypeMin, "max": pressureTypeMax}),
+		"Snow depth": (minmaxData.snow_depth.max || null) && minmaxData.snow_depth.max + " m",
+		"Cloud coverage": formatMm({"min": cloudCoverageTypeMin, "max": cloudCoverageTypeMax}),
+		"Fog type": formatMm({ "min": fogTypeMin, "max": fogTypeMax }),
+		"Ice cover": minmaxData.ice_cover.max ? "yes" : null,
+		"Humidity": formatMm({"min": humidityTypeMin, "max": humidityTypeMax}),
 		"Location": [placeClass, placeType].filter(x => x).join(", "),
 		"Activity": activity,
 	}
-
-	console.log(data);
 
 	// filter out invalid and hidden values
 	data = Object.entries(data).filter(e => e[1] === null || e[1] === undefined || e[1] === "");
@@ -287,7 +278,7 @@ app.post('/advice', async (req, res) => {
 	const contentMsg = data.map(x => x.join(": ")).join("\n");
 
 	// query ChatGPT to generate description
-	const gptText = await openai.chat.completions.create({
+	const gptResponse = await openai.chat.completions.create({
 		messages: [
 			{ role: 'system', content: SYS_MSG },
 			{ role: 'user', content: contentMsg }
@@ -296,12 +287,16 @@ app.post('/advice', async (req, res) => {
 		temperature: 0,
 	});
 
-	console.log("GPT Text:", gptText);
+	const gptText = gptResponse.choices[0].message.content;
 
-	console.log("Request successful");
-	
-	res.sendStatus(500);
+	res.send(gptText);
 })
+
+
+
+
+
+
 
 // should be at end of file
 app.listen(port, () => {

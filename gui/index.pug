@@ -66,10 +66,11 @@ html
 	body
 		.app
 			.columns
-				.col
+				.col(style="flex-grow:1;")
 					+placeSelect
 					+placeMap
 				.col
 					+timeSelect
-				.col
+				.col(style="flex-grow:3;")
 					+textOutput
+					.weather-array

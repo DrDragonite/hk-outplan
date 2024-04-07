@@ -221,5 +221,68 @@ function onOffsetChange(id) {
 }
 
 function weatherCell(title, emoji, dayTemp, nightTemp) {
-    return `<div class="weather-cell"><span class="title">${title}</span><span></span></div>`
+    return `<div class="weather-cell"><span class="title">${title}</span><span class="emoji">${emoji}</span><div class="temp"><span class="day">${dayTemp}</span><span class="night">${nightTemp}</span></div></div>`;
 }
+
+const days = [{
+    "name": "MON",
+    "day_temp": 30,
+    "night_temp": 12,
+    "cloud_coverage": 80,
+    "precipitation": 10
+},
+{
+    "name": "TUE",
+    "day_temp": 28,
+    "night_temp": 16,
+    "cloud_coverage": 70,
+    "precipitation": 20
+},{
+    "name": "WED",
+    "day_temp": 32,
+    "night_temp": 17,
+    "cloud_coverage": 40,
+    "precipitation": 60
+},{
+    "name": "THU",
+    "day_temp": 31,
+    "night_temp": 13,
+    "cloud_coverage": 30,
+    "precipitation": 90
+},{
+    "name": "FRI",
+    "day_temp": 29,
+    "night_temp": 15,
+    "cloud_coverage": 60,
+    "precipitation": 30
+},{
+    "name": "SAT",
+    "day_temp": 27,
+    "night_temp": 14,
+    "cloud_coverage": 50,
+    "precipitation": 60
+},{
+    "name": "SUN",
+    "day_temp": 33,
+    "night_temp": 16,
+    "cloud_coverage": 90,
+    "precipitation": 30
+},]
+
+function weatherEmoji(precipitation, cloud_coverage) {
+    if (precipitation > 50) {
+        return "🌧️"
+    } else if (cloud_coverage > 67) {
+        return "☁️"
+    } else if (cloud_coverage > 33) {
+        return "⛅"
+    } else {
+        return "☀️"
+    }
+}
+
+setTimeout(() => {
+    days.forEach((day) => {
+        document.querySelector(".weather-array:last-child").insertAdjacentHTML("beforeend", weatherCell(day.name, weatherEmoji(day.precipitation, day.cloud_coverage), day.day_temp+"°C", day.night_temp+"°C"));
+    })
+}, 1000);
