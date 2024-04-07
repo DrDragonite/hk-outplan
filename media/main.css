@@ -1,0 +1,71 @@
+html, body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+}
+
+.app {
+	width: 100%;
+	height: 100%;
+	position: relative;
+	overflow: hidden;
+}
+
+.columns {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: stretch;
+	justify-content: space-evenly;
+}
+
+.col {
+	flex-grow: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	background-color: lightcyan;
+	gap: 15px;
+	padding: 25px;
+	min-width: 200px;
+}
+
+.col:not(:last-child) {
+	border-right: 3px solid darkcyan;
+}
+
+.line {
+	display: flex;
+	gap: .5em;
+	justify-content: center;
+	align-items: center;
+	width: 100%;
+}
+
+.spread {
+	justify-content: space-evenly;
+}
+
+#placeSelect {
+	min-width: 100px;
+	max-width: 300px;
+	overflow: hidden;
+}
+
+#gpt_box {
+	width: 100%;
+	height: 5em;
+}
+
+#preview {
+	aspect-ratio: 425 / 350;
+	width: 100%;
+}
+
+#spinner {
+	position: fixed;
+	bottom: 30px;
+	right: 30px;
+}

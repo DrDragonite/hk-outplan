@@ -1,0 +1,75 @@
+mixin inp_country
+	select(id="country")
+		option(value="sk") Slovakia
+
+mixin inp_placetext
+	input(type="text", id="place" placeholder="Place of travel")
+	input(type="button", value="Search", onclick="submitPlace()")
+
+mixin inp_placeselect
+	select(id="placeSelect" onchange="embedUpdate()" disabled)
+
+mixin inp_activityselect 
+	select(id="activity", onchange="activitySelectChange()")
+		option(value="" selected) -- Activity --
+		option(value="walking") Walking
+		option(value="hiking") Hiking
+		option(value="biking") Biking
+		option(value="running") Running
+		option(value="other") Other
+	input(type="text", id="otherActivity", style="display:none;")
+
+mixin placeSelect
+	.line
+		+inp_placetext
+	+inp_placeselect
+	+inp_activityselect
+
+mixin inp_dateselect(id)
+	select(id=`${id}_dateselect` onchange=`dateSelectChange("${id}")`)
+		option(value="today") Today
+		option(value="date") Date
+		option(value="offset") Offset from today
+	+inp_dt(id)
+	+inp_offset(id)
+
+mixin inp_dt(id)
+	- const today = new Date();
+	- today.setDate(today.getDate() + (maxDays || 0));
+	input(type="datetime-local" id=`${id}_date` max=today.toISOString() style="display: none;")
+
+mixin inp_offset(id)
+	input(type="number" id=`${id}_offset_days` placeholder="Days" style="display: none;" max=`${maxDays}`)
+	input(type="number" id=`${id}_offset_hours` placeholder="Hours" style="display: none;" max=`${maxDays}`)
+
+mixin timeSelect
+	+inp_dateselect("start")
+	+inp_dateselect("end")
+	input(type="button", value="Get Advice", onclick="getAdvice()")
+
+mixin gpt_box
+	textarea(id="gpt_box" style="resize:none;")
+	img(src="/media/spinner.svg" width="50" style="display: none;" id="spinner")
+
+mixin textOutput
+	+gpt_box
+
+mixin placeMap
+	iframe(id="preview" src="https://www.openstreetmap.org/export/embed.html")
+
+doctype html 
+html 
+	head 
+		meta(charset="UTF-8")
+		script(src="media/main.js") 
+		link(rel="stylesheet" href="media/main.css")
+	body
+		.app
+			.columns
+				.col
+					+placeSelect
+					+placeMap
+				.col
+					+timeSelect
+				.col
+					+textOutput
