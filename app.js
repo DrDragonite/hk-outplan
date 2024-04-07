@@ -25,13 +25,13 @@ app.set('view engine', 'pug'); // set pug as renderer
 app.set('views', './gui'); // locate template folder
 app.use(rateLimit({
 	windowMs: 60 * 1000,
-	limit: 5,
+	limit: 10,
 	standardHeaders: 'draft-7',
 	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
 	skip: req => {
 		if (checkWL(req.ip))
 			return true;
-		if (!req.path.startsWith("/advice"))
+		if (req.path == "/")
 			return true;
 		return false;
 	}
@@ -75,8 +75,8 @@ full answer format: "[answer]; [precautions]"
 
 // index page
 app.get('/', (req, res) => {
-	if (!checkWL(req.ip))
-		return;
+	// if (!checkWL(req.ip))
+	// 	return;
 	res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS});
 });
 
