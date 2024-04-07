@@ -417,6 +417,13 @@ app.get("/alerts", async (req, res) => {
 	// get alerts from api
 	const apiKey = process.env.WEATHERBIT_API_KEY
 	let alertJSON;
+	const lat = Number(req.query?.lat);
+	if (isNaN(lat) || lat < -90 || lat > 90)
+		return res.status(400).send("Invalid latitude");
+
+	const lon = Number(req.query?.lon);
+	if (isNaN(lon) || lon < -180 || lon > 180)
+		return res.status(400).send("Invalid longitude");
 	try {
 		const resp = await fetch(`https://api.weatherbit.io/v2.0/alerts?lat=${lat}&lon=${lon}&key=${apiKey}`);
 		alertJSON = await resp.json();
@@ -444,6 +451,13 @@ app.get("/air", async (req, res) => {
 	// get air info from api
 	const apiKey = process.env.WEATHERBIT_API_KEY
 	let airJSON;
+	const lat = Number(req.query?.lat);
+	if (isNaN(lat) || lat < -90 || lat > 90)
+		return res.status(400).send("Invalid latitude");
+
+	const lon = Number(req.query?.lon);
+	if (isNaN(lon) || lon < -180 || lon > 180)
+		return res.status(400).send("Invalid longitude");
 	try {
 		const resp = await fetch(`https://api.weatherbit.io/v2.0/current/airquality?lat=${lat}&lon=${lon}{&key=${apiKey}`);
 		airJSON = await resp.json();
@@ -452,7 +466,7 @@ app.get("/air", async (req, res) => {
 		return res.sendStatus(500);
 	}
 
-	// store unique output alerts
+	// store unique info about air
 	const air = [];
 
 	const clamp = (val, min = 0, max = 1) => Math.min(max, Math.max(min, val));
