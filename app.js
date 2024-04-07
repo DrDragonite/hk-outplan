@@ -144,6 +144,7 @@ app.post('/advice', async (req, res) => {
 		console.log("Meteo request 1 failed");
 		return res.sendStatus(500);
 	}
+	const utcOffset = Number(req.query.utcOffset);
 
 	// split meteo data into days
 	const paramCount = Object.keys(meteoJSON.parameters).length
@@ -152,14 +153,14 @@ app.post('/advice', async (req, res) => {
 	// calculate interval for calculating perticipation
 	const startDateMidnight = (new Date(startDate));
 	startDateMidnight.setHours(0);
-	startDateMidnight.setMinutes(0);
+	startDateMidnight.setMinutes(-utcOffset);
 	startDateMidnight.setSeconds(0);
 	startDateMidnight.setMilliseconds(0);
 	const isoDayStart = startDateMidnight.toISOString();
 
 	const endDateMidnight = (new Date(endDate));
 	endDateMidnight.setHours(24 - 6);
-	endDateMidnight.setMinutes(0);
+	endDateMidnight.setMinutes(-utcOffset);
 	endDateMidnight.setSeconds(0);
 	endDateMidnight.setMilliseconds(0);
 	const isoDayEnd = endDateMidnight.toISOString(); // +18 hours because of 6h intervals
@@ -197,7 +198,7 @@ app.post('/advice', async (req, res) => {
 
 	for (let sample of samples) {
 		const getParam = name => Object.entries(meteoJSON.parameters).findIndex(e => e[0] == name);
-		const getEntry = param => ({ value: Object.values(sample[getParam(param)]?.ranges || {}).at(0).values.at(0), unit: meteoJSON.parameters[getParam(param)]?.unit?.symbol });
+		const getEntry = param => ({ value: Object.values(sample[getParam(param)]?.ranges || {}).at(0)?.values.at(0), unit: meteoJSON.parameters[getParam(param)]?.unit?.symbol });
 		const v = (val, def) => val === null ? def : (isNaN(val) ? val : Number(val));
 		const minmax = (key, param) => {
 			let value = getEntry(param).value;
@@ -279,7 +280,7 @@ app.post('/advice', async (req, res) => {
 
 	console.log(contentMsg);
 
-	// query ChatGPT to generate description
+	//query ChatGPT to generate description
 	const gptResponse = await openai.chat.completions.create({
 		messages: [
 			{ role: 'system', content: SYS_MSG },
@@ -322,24 +323,26 @@ app.post('/weather', async (req, res) => {
 	if (startDate > endDate)
 		return res.status(400).send("Start date must be before end date");
 
+	const utcOffset = Number(req.query.utcOffset);
+
 	const isoDates = [];
 	for (let d = startDate; d <= endDate; d += 24 * 60 * 60 * 1000) {
 		let midnight = new Date(d)
 		midnight.setHours(0);
-		midnight.setMinutes(0);
+		midnight.setMinutes(-utcOffset);
 		midnight.setSeconds(0);
 		midnight.setMilliseconds(0);
 		isoDates.push(midnight.toISOString());
 
 		let noon = new Date(d)
 		noon.setHours(12);
-		noon.setMinutes(0);
+		noon.setMinutes(-utcOffset);
 		noon.setSeconds(0);
 		noon.setMilliseconds(0);
 		isoDates.push(noon.toISOString());
 	}
 	
-
+	
 	// get data from meteo api
 	let meteoJSON;
 	try {
@@ -415,8 +418,19 @@ app.post('/weather', async (req, res) => {
 
 app.get("/alerts", async (req, res) => {
 	// get alerts from api
-	const apiKey = process.env.WEATHERBIT_API_KEY
-	let alertJSON;
+	const apiKey = process.env.WEATHERBIT_API_KEY;
+
+	// get dates
+	const NOW = new Date();
+	NOW.setMinutes(NOW.getMinutes() - 1); // account for request delay
+
+	const MAX_DATE = new Date();
+	MAX_DATE.setHours(23);
+	MAX_DATE.setMinutes(59);
+	MAX_DATE.setSeconds(59);
+	MAX_DATE.setMilliseconds(9999);
+
+	// get and validate input values
 	const lat = Number(req.query?.lat);
 	if (isNaN(lat) || lat < -90 || lat > 90)
 		return res.status(400).send("Invalid latitude");
@@ -424,6 +438,12 @@ app.get("/alerts", async (req, res) => {
 	const lon = Number(req.query?.lon);
 	if (isNaN(lon) || lon < -180 || lon > 180)
 		return res.status(400).send("Invalid longitude");
+
+	const endDate = Number(req.query.endDate);
+	if (isNaN(endDate) || endDate < NOW.valueOf() || endDate > MAX_DATE.valueOf())
+		return res.sendStatus(200);
+
+	let alertJSON;
 	try {
 		const resp = await fetch(`https://api.weatherbit.io/v2.0/alerts?lat=${lat}&lon=${lon}&key=${apiKey}`);
 		alertJSON = await resp.json();
@@ -446,13 +466,24 @@ app.get("/alerts", async (req, res) => {
 		});
 	});
 
-	res.send({content:alerts})
+	res.send({content:alerts});
 });
 	
 app.get("/air", async (req, res) => {
 	// get air info from api
 	const apiKey = process.env.WEATHERBIT_API_KEY
-	let airJSON;
+	
+	// get dates
+	const NOW = new Date();
+	NOW.setMinutes(NOW.getMinutes() - 1); // account for request delay
+
+	const MAX_DATE = new Date();
+	MAX_DATE.setHours(23);
+	MAX_DATE.setMinutes(59);
+	MAX_DATE.setSeconds(59);
+	MAX_DATE.setMilliseconds(9999);
+
+	// get and validate input params
 	const lat = Number(req.query?.lat);
 	if (isNaN(lat) || lat < -90 || lat > 90)
 		return res.status(400).send("Invalid latitude");
@@ -460,36 +491,46 @@ app.get("/air", async (req, res) => {
 	const lon = Number(req.query?.lon);
 	if (isNaN(lon) || lon < -180 || lon > 180)
 		return res.status(400).send("Invalid longitude");
+
+	const endDate = Number(req.query.endDate);
+	if (isNaN(endDate) || endDate < NOW.valueOf() || endDate > MAX_DATE.valueOf())
+		return res.sendStatus(200);
+
+	let airJSON;
 	try {
-		const resp = await fetch(`https://api.weatherbit.io/v2.0/current/airquality?lat=${lat}&lon=${lon}{&key=${apiKey}`);
+		const resp = await fetch(`https://api.weatherbit.io/v2.0/current/airquality?lat=${lat}&lon=${lon}&key=${apiKey}`);
 		airJSON = await resp.json();
 	} catch {
 		console.log("Air info request failed");
 		return res.sendStatus(500);
 	}
 
-	// store unique info about air
-	const air = [];
-
+	// helper functions
 	const clamp = (val, min = 0, max = 1) => Math.min(max, Math.max(min, val));
 	const normalize = (val, max = 100) => clamp(val, 0, max) / max;
 	const valsplit = (val, namesSplit, nameEmpty = undefined, treshold = 0.1) => val > treshold ? namesSplit[Math.floor(val / (1 / namesSplit.length + 0.01))] : (typeof nameEmpty == undefined ? nameEmpty : namesSplit[0]);
 
 	// capture unique air info
-	const aqi = output.data[0].aqi;
-	var aqiText = valsplit(normalize(aqi, 300), ["Good", "Moderate", "Unhealthy", "Very Unhealthy", "Hazardous"])
-	air.push({
-		aqi: output.data[0].aqi,
-		aqiText: aqiText,
-		highest_pollen_level: Math.max(output.data[0].pollen_level_grass, output.data[0].pollen_level_tree, output.data[0].pollen_level_weed),
-		mold_level: output.data[0].mold_level
-	});
+	const jsonData = airJSON.data[0];
+	const aqi = jsonData.aqi;
+	const pollen = Math.max(jsonData.pollen_level_grass, jsonData.pollen_level_tree, jsonData.pollen_level_weed);
+	const mold = jsonData.mold_level;
 
-	res.send({content:air});
+	// translate info into text
+	const aqiText = valsplit(normalize(aqi, 300), [null, null, "Unhealthy", "Very Unhealthy", "Hazardous"]);
+	const pollenText = valsplit(normalize(pollen, 4), [null, "Low", "Medium", "High"]);
+	const moldText = valsplit(normalize(mold, 4), [null, "Low", "Medium", "High"]);
+
+	// filter info by severity
+	let data = {
+		aqi: aqiText,
+		pollen_level: pollenText,
+		mold_level: moldText
+	};
+	data = Object.fromEntries(Object.entries(data).filter(e => e[1] !== null && e[1] !== undefined));
+
+	res.send(data);
 })
-
-
-
 
 
 // should be at end of file

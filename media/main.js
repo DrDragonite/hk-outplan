@@ -1,58 +1,9 @@
-var searchResults = {}
-
-const days = [{
-    "name": "MON",
-    "day_temp": 30,
-    "night_temp": 12,
-    "cloud_coverage": 80,
-    "precipitation": 10
-},
-{
-    "name": "TUE",
-    "day_temp": 28,
-    "night_temp": 16,
-    "cloud_coverage": 70,
-    "precipitation": 20
-}, {
-    "name": "WED",
-    "day_temp": 32,
-    "night_temp": 17,
-    "cloud_coverage": 40,
-    "precipitation": 60
-}, {
-    "name": "THU",
-    "day_temp": 31,
-    "night_temp": 13,
-    "cloud_coverage": 30,
-    "precipitation": 90
-}, {
-    "name": "FRI",
-    "day_temp": 29,
-    "night_temp": 15,
-    "cloud_coverage": 60,
-    "precipitation": 30
-}, {
-    "name": "SAT",
-    "day_temp": 27,
-    "night_temp": 14,
-    "cloud_coverage": 50,
-    "precipitation": 60
-}, {
-    "name": "SUN",
-    "day_temp": 33,
-    "night_temp": 16,
-    "cloud_coverage": 90,
-    "precipitation": 30
-}]
+var searchResults = [];
 
 document.addEventListener("DOMContentLoaded", () => {
     dateSelectChange("start")
     dateSelectChange("end")
-    /*
-    days.forEach((day) => {
-        document.getElementById("weather-array").insertAdjacentHTML("beforeend", weatherCell(day.name, weatherEmoji(day.precipitation, day.cloud_coverage), day.day_temp + "°C", day.night_temp + "°C"));
-    })
-    */
+    document.getElementById("gpt_box").value = "";
 })
 
 
@@ -110,13 +61,16 @@ function iconFromPlace(classname, place) {
         return "🌊"
     } else if (searchStr.includes("lake")) {
         return "🌊"
-    } else if (searchStr.includes("sea")) {
-        return "🌊"
     } else if (searchStr.includes("forest")) {
         return "🌲"
     } else {
         return "📍"
     }
+}
+
+function textAreaAdjust(element) {
+    element.style.height = "1px";
+    element.style.height = (25+element.scrollHeight)+"px";
 }
 
 function submitPlace() {
@@ -152,8 +106,11 @@ function submitPlace() {
 }
 
 function getAdvice() {
+    document.getElementById("gpt_box").value = "";
+    clearAlerts();
+    
     if (document.getElementById("start_dateselect").value == "today") {
-        start = new Date()
+        start = new Date()     
     } else if (document.getElementById("start_dateselect").value == "date") {
         start = new Date(document.getElementById("start_date").value)
     } else {
@@ -189,15 +146,17 @@ function getAdvice() {
             if (this.readyState == 4) {
                 document.getElementById("spinner").style.display = "none"
                 if (this.status == 200) {
-                    document.getElementById("gpt_box").innerHTML = this.responseText
+                    document.getElementById("gpt_box").value = this.responseText
                 } else {
-                    document.getElementById("gpt_box").innerHTML = "Not Found"
+                    document.getElementById("gpt_box").value = "Data Not Found"
                 }
+                textAreaAdjust(document.getElementById("gpt_box"))
             } 
         };
         xhttp.onerror = () => {
             document.getElementById("spinner").style.display = "none"
-            document.getElementById("gpt_box").innerHTML = "Network Error"
+            document.getElementById("gpt_box").value = "Network Error"
+            textAreaAdjust(document.getElementById("gpt_box"))
         }
         var params = {
             "lat": encodeURIComponent(selectedPlace.lat),
@@ -207,6 +166,7 @@ function getAdvice() {
             "activity": encodeURIComponent(activity),
             "startDate": start.valueOf(),
             "endDate": end.valueOf(),
+            "utcOffset": new Date().getTimezoneOffset(),
         }
         var queryString = Object.keys(params).map(key => key + '=' + params[key]).join('&');
         xhttp.open("POST", "/advice?" + queryString, true);
@@ -219,13 +179,52 @@ function getAdvice() {
                 document.getElementById("weather-array").innerHTML = ""
                 var days = JSON.parse(getDays.responseText).content
                 days.forEach((day) => {
-                    document.getElementById("weather-array").insertAdjacentHTML("beforeend", weatherCell(day.name, weatherEmoji(day.precipitation, day.cloud_coverage), day.dayTemp + "°C", day.nightTemp + "°C"));
+                    document.getElementById("weather-array").insertAdjacentHTML("beforeend", weatherCell(day.name, weatherEmoji(day.precipitation, day.cloud_coverage), day.dayTemp, day.nightTemp));
                 })
             }
         }
         getDays.open("POST", "/weather?" + queryString, true);
         getDays.send()
+    }
 
+    if (end.getDate() == new Date().getDate()) {
+        
+        fetch("/alerts?" + new URLSearchParams({
+            "lat": encodeURIComponent(selectedPlace.lat),
+            "lon": encodeURIComponent(selectedPlace.lon),
+            "endDate": end.valueOf(),
+
+        })).then(x => x.json()).then(json => {
+            json.content.forEach((a) => {
+                document.querySelector(".col:last-child").insertAdjacentHTML("beforeend",
+                    makeAlert(a.severity.toLowerCase() == "advisory" || a.severity.toLowerCase() == "watch" ? "yellow" : "red", a.title, a.description)
+                );
+            })
+        });
+
+        fetch("/air?" + new URLSearchParams({
+            "lat": encodeURIComponent(selectedPlace.lat),
+            "lon": encodeURIComponent(selectedPlace.lon),
+            "endDate": end.valueOf(),
+
+        })).then(x => x.json()).then(json => {
+            const a = json
+            if (a.aqi){
+                document.querySelector(".col:last-child").insertAdjacentHTML("beforeend",
+                    makeAlert("green", "Air Quality Index", a.aqi)
+                );
+            }
+            if (a.pollen_level){
+                document.querySelector(".col:last-child").insertAdjacentHTML("beforeend",
+                    makeAlert("green", "Pollen Level", a.pollen_level)
+                );
+            }
+            if (a.mold_level){
+                document.querySelector(".col:last-child").insertAdjacentHTML("beforeend",
+                    makeAlert("green", "Mold Level", a.mold_level)
+                );
+            }
+        });
     }
 }
 
@@ -287,7 +286,17 @@ function onOffsetChange(id) {
 }
 
 function weatherCell(title, emoji, dayTemp, nightTemp) {
-    return `<div class="weather-cell"><span class="title">${title}</span><span class="emoji">${emoji}</span><div class="temp"><span class="day">${dayTemp}</span><span class="night">${nightTemp}</span></div></div>`;
+    return `<div class="weather-cell"><span class="title">${title}</span><span class="emoji">${emoji}</span><div class="temp"><span class="day">${dayTemp}°C</span><span class="night">${nightTemp}°C</span></div></div>`;
+}
+
+function makeAlert(color, title, description, icon="⚠️") {
+    return `<div class="alert ${color || ""}"><div><span>${icon}</span>${title || ""}</div><div>${description || ""}</div></div>`;
+}
+
+function clearAlerts() {
+    for (let e of document.querySelectorAll(".alert")) {
+        e.remove();
+    }
 }
 
 function weatherEmoji(precipitation, cloud_coverage) {
@@ -301,3 +310,4 @@ function weatherEmoji(precipitation, cloud_coverage) {
         return "☀️"
     }
 }
+

@@ -4,7 +4,7 @@ mixin inp_country
 
 mixin inp_placetext
 	input(type="text", id="place" placeholder="Place of travel")
-	input(type="button", value="Search", onclick="submitPlace()")
+	input(type="button",id="search" value="Search", onclick="submitPlace()")
 
 mixin inp_placeselect
 	select(id="placeSelect" onchange="embedUpdate()" disabled)
@@ -48,7 +48,7 @@ mixin timeSelect
 	input(type="button", value="Get Advice", onclick="getAdvice()")
 
 mixin gpt_box
-	textarea(id="gpt_box" style="resize:none;")
+	textarea(id="gpt_box" style="resize:none;" readonly)
 	img(src="/media/spinner.svg" width="50" style="display: none;" id="spinner")
 
 mixin textOutput
@@ -57,19 +57,23 @@ mixin textOutput
 mixin placeMap
 	iframe(id="preview" src="https://www.openstreetmap.org/export/embed.html")
 
+
 doctype html 
 html 
 	head 
 		meta(charset="UTF-8")
 		script(src="media/main.js") 
 		link(rel="stylesheet" href="media/main.css")
+		link(rel="preconnect" href="https://fonts.googleapis.com")
+		link(rel="preconnect" href="https://fonts.gstatic.com" crossorigin)
+		link(href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap" rel="stylesheet")
 	body
 		.app
 			.columns
-				.col(style="flex-grow:1;")
+				.col(style="flex-grow:1;flex-basis:400px")
 					+placeSelect
 					+placeMap
-				.col
+				.col(style="flex-shrink:1;")
 					+timeSelect
 				.col(style="flex-grow:3;")
 					#weather-array
