@@ -105,6 +105,25 @@ function submitPlace() {
     xhttp.send();
 }
 
+/*
+function processGpx() {
+    let file = document.getElementById("gpxFile").files[0]
+    
+    if (file.type && !file.type.startsWith('application/gpx+xml')) {
+        console.log('File is not a GPX file.', file.type, file);
+        return;
+    }
+    let parser = new DOMParser()
+    let gpxFile;
+    const reader = new FileReader();
+    reader.addEventListener('load', (event) => {
+        gpxFile = parser.parseFromString(event.target.result, "text/xml")
+        console.log(gpxFile.getElementsByTagName("trkpt")[0].getAttribute("lat"))
+    });
+    reader.readAsText(file);
+}
+*/
+
 function getAdvice() {
     document.getElementById("gpt_box").value = "";
     clearAlerts();
@@ -158,6 +177,7 @@ function getAdvice() {
             document.getElementById("gpt_box").value = "Network Error"
             textAreaAdjust(document.getElementById("gpt_box"))
         }
+        const formData = new FormData();
         var params = {
             "lat": encodeURIComponent(selectedPlace.lat),
             "lon": encodeURIComponent(selectedPlace.lon),
@@ -168,9 +188,16 @@ function getAdvice() {
             "endDate": end.valueOf(),
             "utcOffset": new Date().getTimezoneOffset(),
         }
+        for (let param in params) {
+            formData.append(param, params[param])
+        }
+        for (let i = 0; i < document.getElementById("gpxFile").files.length; i++) {
+            formData.append("photos", document.getElementById("gpxFile").files[i])
+        }
+        console.log(formData)
         var queryString = Object.keys(params).map(key => key + '=' + params[key]).join('&');
-        xhttp.open("POST", "/advice?" + queryString, true);
-        xhttp.send();
+        xhttp.open("POST", "/advice", true);
+        xhttp.send(formData);
         document.getElementById("spinner").style.display = ""
 
         var getDays = new XMLHttpRequest()
@@ -179,7 +206,7 @@ function getAdvice() {
                 document.getElementById("weather-array").innerHTML = ""
                 var days = JSON.parse(getDays.responseText).content
                 days.forEach((day) => {
-                    document.getElementById("weather-array").insertAdjacentHTML("beforeend", weatherCell(day.name, weatherEmoji(day.precipitation, day.cloud_coverage), day.dayTemp, day.nightTemp));
+                    document.getElementById("weather-array").insertAdjacentHTML("beforeend", weatherCell(day.name, weatherEmoji(day.precipitation, day.cloudCoverage), day.dayTemp, day.nightTemp));
                 })
             }
         }

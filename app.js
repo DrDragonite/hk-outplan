@@ -1,7 +1,10 @@
 const express = require('express');
 const OpenAI = require("openai");
 const morgan = require("morgan");
+const multer = require("multer");
+const upload = multer();
 const rateLimit = require('express-rate-limit');
+const { find } = require('geo-tz')
 require("dotenv").config();
 
 
@@ -64,6 +67,12 @@ precaution format: "beware this, avoid that"
 full answer format: "[answer]; [precautions]"
 `.trim();
 
+const SYS_MSG_ALERTS = `
+summarize the given text in english language only.
+make it as short as possible but do not leave out any important details.
+no matter what use maximum of 25 words.
+`.trim();
+
 // openai.chat.completions.create({
 // 	messages: [{ role: 'user', content: 'Say this is a test' }],
 // 	model: 'gpt-3.5-turbo',
@@ -88,7 +97,7 @@ function chunkArray(array, n) {
 	return chunks;
 }
 
-app.post('/advice', async (req, res) => {
+app.post('/advice', upload.array('photos'), async (req, res) => {
 	const NOW = new Date();
 	NOW.setMinutes(NOW.getMinutes() - 1); // account for request delay
 
@@ -96,19 +105,19 @@ app.post('/advice', async (req, res) => {
 	MAX_DATE.setDate(NOW.getDate() + process.env.FORECAST_MAX_DAYS);
 	
 	// meteo params
-	const lat = Number(req.query?.lat);
+	const lat = Number(req.body?.lat);
 	if (isNaN(lat) || lat < -90 || lat > 90)
 		return res.status(400).send("Invalid latitude");
 
-	const lon = Number(req.query?.lon);
+	const lon = Number(req.body?.lon);
 	if (isNaN(lon) || lon < -180 || lon > 180)
 		return res.status(400).send("Invalid longitude");
 
-	const startDate = Number(req.query.startDate);
+	const startDate = Number(req.body.startDate);
 	if (isNaN(startDate) || startDate < NOW.valueOf() || startDate > MAX_DATE.valueOf())
 		return res.status(400).send("Invalid starting date");
 
-	const endDate = Number(req.query.endDate);
+	const endDate = Number(req.body.endDate);
 	if (isNaN(endDate) || endDate < NOW.valueOf() || endDate > MAX_DATE.valueOf())
 		return res.status(400).send("Invalid end date");
 
@@ -116,9 +125,9 @@ app.post('/advice', async (req, res) => {
 		return res.status(400).send("Start date must be before end date");
 
 	// get additional info for ChatGPT
-	const placeClass = req.query.class;
-	const placeType = req.query.type;
-	const activity = req.query.activity;
+	const placeClass = req.body.class;
+	const placeType = req.body.type;
+	const activity = req.body.activity;
 
 	const isoDates = [];
 
@@ -144,7 +153,23 @@ app.post('/advice', async (req, res) => {
 		console.log("Meteo request 1 failed");
 		return res.sendStatus(500);
 	}
-	const utcOffset = Number(req.query.utcOffset);
+	const utcOffset = Number(req.body.utcOffset);
+
+	let modelAnswer;
+	const formData = new FormData()
+	for (let i = 0; i < req.files.length; i++) {
+		formData.append("photos", new Blob([req.files[i].buffer], {type: req.files[i].mimetype}), req.files[i].originalname)
+	}
+	try {
+		const resp = await fetch("http://localhost:5000/upload", {
+			method: "POST",
+			body: formData
+		});
+		modelAnswer = await resp.text();
+	} catch {
+		console.log("Model request failed");
+		return res.sendStatus(500);
+	}
 
 	// split meteo data into days
 	const paramCount = Object.keys(meteoJSON.parameters).length
@@ -279,7 +304,7 @@ app.post('/advice', async (req, res) => {
 	const contentMsg = data.map(x => x.join(": ")).join("\n");
 
 	console.log(contentMsg);
-
+	/*
 	//query ChatGPT to generate description
 	const gptResponse = await openai.chat.completions.create({
 		messages: [
@@ -291,8 +316,8 @@ app.post('/advice', async (req, res) => {
 	});
 
 	const gptText = gptResponse.choices[0].message.content;
-
-	res.send(gptText);
+	*/
+	res.send("gptText\n" + modelAnswer);
 })
 
 
@@ -323,22 +348,57 @@ app.post('/weather', async (req, res) => {
 	if (startDate > endDate)
 		return res.status(400).send("Start date must be before end date");
 
-	const utcOffset = Number(req.query.utcOffset);
+	const utcOffsetLocal = Number(req.query.utcOffset);
+
+	
+	const getOffset = (timeZone) => {
+		const timeZoneName = Intl.DateTimeFormat("ia", {
+		  	timeZoneName: "short",
+		  	timeZone,
+		})
+		  	.formatToParts()
+		  	.find((i) => i.type === "timeZoneName").value;
+		const offset = timeZoneName.slice(3);
+		if (!offset) return 0;
+	  
+		const matchData = offset.match(/([+-])(\d+)(?::(\d+))?/);
+		if (!matchData) throw `cannot parse timezone name: ${timeZoneName}`;
+	  
+		const [, sign, hour, minute] = matchData;
+		let result = parseInt(hour) * 60;
+		if (sign === "+") result *= -1;
+		if (minute) result += parseInt(minute);
+	  
+		return result;
+	};
+	const utcOffset = getOffset(find(lat, lon))
 
 	const isoDates = [];
 	for (let d = startDate; d <= endDate; d += 24 * 60 * 60 * 1000) {
+		let utcCurrent = new Date(d)
+		let minutesSinceMidnight = utcCurrent.getHours()*60+utcCurrent.getMinutes()+utcOffsetLocal
+		
+
+	
+
 		let midnight = new Date(d)
-		midnight.setHours(0);
-		midnight.setMinutes(-utcOffset);
+		midnight.setHours(27);
+		midnight.setMinutes(utcOffset-utcOffsetLocal);
 		midnight.setSeconds(0);
 		midnight.setMilliseconds(0);
-		isoDates.push(midnight.toISOString());
 
 		let noon = new Date(d)
-		noon.setHours(12);
-		noon.setMinutes(-utcOffset);
+		noon.setHours(15);
+		noon.setMinutes(utcOffset-utcOffsetLocal+30);
 		noon.setSeconds(0);
 		noon.setMilliseconds(0);
+		
+		if ((24*60 - minutesSinceMidnight) < -utcOffset) {
+			midnight.setDate(midnight.getDate() + 1)
+			noon.setDate(noon.getDate() + 1)
+		}
+		
+		isoDates.push(midnight.toISOString());
 		isoDates.push(noon.toISOString());
 	}
 	
@@ -357,39 +417,7 @@ app.post('/weather', async (req, res) => {
 	const paramCount = Object.keys(meteoJSON.parameters).length
 	const samples = chunkArray(meteoJSON.coverages, paramCount); // should separate into days by `domain.time`
 
-	// calculate interval for calculating perticipation
-	const startDateMidnight = (new Date(startDate));
-	startDateMidnight.setHours(0);
-	startDateMidnight.setMinutes(0);
-	startDateMidnight.setSeconds(0);
-	startDateMidnight.setMilliseconds(0);
-	const isoDayStart = startDateMidnight.toISOString();
-
-	const endDateMidnight = (new Date(endDate));
-	endDateMidnight.setHours(24 - 6);
-	endDateMidnight.setMinutes(0);
-	endDateMidnight.setSeconds(0);
-	endDateMidnight.setMilliseconds(0);
-	const isoDayEnd = endDateMidnight.toISOString(); // +18 hours because of 6h intervals
-
-	// get rain amounts
-	let rainJSON;
-	try {
-		const resp = await fetch(`https://climathon.iblsoft.com/data/gefs-0.25deg/edr/collections/single-level_2/position?coords=POINT(${lon} ${lat})&parameter-name=total-precipitation_gnd-surf_positively-perturbed_stat:acc/PT6H&datetime=${isoDayStart}/${isoDayEnd}&f=CoverageJSON`);
-		rainJSON = await resp.json();
-	} catch {
-		console.log("Meteo request 2 failed");
-		return res.sendStatus(500);
-	}
-
-	// calculate rain percentage from rain amounts
-	const coverageCount = rainJSON.coverages.length;
-	let rainPercent = 0;
-	for (var i = 0; i < coverageCount; i++) {
-		const nazov = "total-precipitation_gnd-surf_positively-perturbed_stat:acc/PT6H_mem-" + (Math.floor(i / (coverageCount / 30)) + 1);
-		rainPercent += rainJSON.coverages[i].ranges[nazov].values[0] > 0.1;
-	}
-	rainPercent /= coverageCount;
+	
 
 	const days = new Array(samples.length/2).fill().map(()=>Object.fromEntries(Object.entries({"name": null, "dayTemp": null, "nightTemp": null, "cloudCoverage": null, "precipitation": null})));
 	for (let i = 0; i < samples.length; i++) {
@@ -402,12 +430,48 @@ app.post('/weather', async (req, res) => {
 		const weekday = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
 
 		if (i%2 == 0) {
-			days[dayI].nightTemp = Math.floor(getEntry("temperature_gnd-surf").value-273.15)
-		} else {
 			days[dayI].name = weekday[new Date(isoDates[i]).getDay() || 0]
 			days[dayI].dayTemp = Math.floor(getEntry("temperature_gnd-surf").value-273.15)
-			days[dayI].cloudCoverage = Math.floor(("total-cloud-cover_atmosphere").value)
+			days[dayI].cloudCoverage = Math.floor(getEntry("total-cloud-cover_atmosphere").value)
+
+			// calculate interval for calculating perticipation
+			let startDateMidnight = (new Date(isoDates[i]));
+			startDateMidnight.setHours(0);
+			startDateMidnight.setMinutes(-utcOffset);
+			startDateMidnight.setSeconds(0);
+			startDateMidnight.setMilliseconds(0);
+			let isoDayStart = startDateMidnight.toISOString();
+
+			let endDateMidnight = (new Date(isoDates[i]));
+			endDateMidnight.setHours(24 - 6);
+			endDateMidnight.setMinutes(-utcOffset);
+			endDateMidnight.setSeconds(0);
+			endDateMidnight.setMilliseconds(0);
+			let isoDayEnd = endDateMidnight.toISOString(); // +18 hours because of 6h intervals
+
+			// get rain amounts
+			let rainJSON;
+			try {
+				const resp = await fetch(`https://climathon.iblsoft.com/data/gefs-0.25deg/edr/collections/single-level_2/position?coords=POINT(${lon} ${lat})&parameter-name=total-precipitation_gnd-surf_positively-perturbed_stat:acc/PT6H&datetime=${isoDayStart}/${isoDayEnd}&f=CoverageJSON`);
+				rainJSON = await resp.json();
+			} catch {
+				console.log("Meteo request 2 failed");
+				return res.sendStatus(500);
+			}
+
+			// calculate rain percentage from rain amounts
+			const coverageCount = rainJSON.coverages.length;
+			let rainPercent = 0;
+			for (var j = 0; j < coverageCount; j++) {
+				const nazov = "total-precipitation_gnd-surf_positively-perturbed_stat:acc/PT6H_mem-" + (Math.floor(j / (coverageCount / 30)) + 1);
+				rainPercent += rainJSON.coverages[j].ranges[nazov].values[0] > 0.1;
+			}
+			rainPercent /= coverageCount;
+
 			days[dayI].precipitation = Math.floor(rainPercent*100)
+
+		} else {
+			days[dayI].nightTemp = Math.floor(getEntry("temperature_gnd-surf").value-273.15)
 		}
 
 	}
@@ -452,19 +516,56 @@ app.get("/alerts", async (req, res) => {
 		return res.sendStatus(500);
 	}
 
+	let hainesJSON;
+	try {
+		const resp = await fetch(`https://climathon.iblsoft.com/data/gfs-0.5deg/edr/collections/single-layer/position?coords=POINT(${lon} ${lat})&parameter-name=haines-index_gnd-surf&datetime=${new Date().toISOString()}&f=CoverageJSON`);
+		hainesJSON = await resp.json();
+	} catch {
+		console.log("haines index request failed");
+		return res.sendStatus(500);
+	}
+
+	
+
 	// store unique output alerts
 	const alerts = [];
 
+	if (hainesJSON.ranges["haines-index_gnd-surf"].values[0] > 5) {
+		const gptResponse = await openai.chat.completions.create({
+			messages: [
+				{ role: 'system', content: SYS_MSG_ALERTS },
+				{ role: 'user', content: `
+					Haines Index is high, pay attention when setting fire as it can spread rapidly
+				` }
+			],
+			model: 'gpt-3.5-turbo',
+			temperature: 0,
+		});
+		alerts.push({
+			"title": "High Haines Index",
+			"description": gptResponse.choices[0].message.content,
+			"severity": "advisory"
+		});
+	}
+
 	// capture unique alerts
 	var alertNames = new Set(alertJSON.alerts.map(obj => obj.title));
-	alertNames.forEach((alertName) => {
+	for (const alertName of alertNames) {
 		var alert = alertJSON.alerts.find(obj => obj.title == alertName);
+		const gptResponse = await openai.chat.completions.create({
+			messages: [
+				{ role: 'system', content: SYS_MSG_ALERTS },
+				{ role: 'user', content: alert.description }
+			],
+			model: 'gpt-3.5-turbo',
+			temperature: 0,
+		});
 		alerts.push({
 			"title": alert.title,
-			"description": alert.description,
+			"description": gptResponse.choices[0].message.content,
 			"severity": alert.severity
 		});
-	});
+	};
 
 	res.send({content:alerts});
 });
@@ -495,6 +596,7 @@ app.get("/air", async (req, res) => {
 	const endDate = Number(req.query.endDate);
 	if (isNaN(endDate) || endDate < NOW.valueOf() || endDate > MAX_DATE.valueOf())
 		return res.sendStatus(200);
+
 
 	let airJSON;
 	try {
