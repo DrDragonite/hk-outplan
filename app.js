@@ -392,7 +392,6 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 			res.send("Wrong file")
 		}
 	} else {
-		console.log("without clothes images")
 		//query ChatGPT to generate description
 		const gptResponse = await openai.chat.completions.create({
 			messages: [
