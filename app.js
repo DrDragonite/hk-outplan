@@ -28,7 +28,7 @@ app.set('view engine', 'pug'); // set pug as renderer
 app.set('views', './gui'); // locate template folder
 app.use(rateLimit({
 	windowMs: 60 * 1000,
-	limit: 10,
+	limit: 1,
 	standardHeaders: 'draft-7',
 	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
 	skip: req => {
@@ -52,19 +52,48 @@ const openai = new OpenAI({
 	timeout: 5 * 1000,
 });
 
-const SYS_MSG = `
-suggest appropriate clothing and precautions based on provided conditions as a short sentence
------------------
+const SYS_MSG_WO_CLOTHES = `
+suggest appropriate clothing for my trip based on the information I provide
+
 keep all weather, location and activity information IMPLIED
-suggestion categories: [long/short] sleeves, [winter/wind/light/waterproof] jacket, thermal clothing, [winter/tourist] shoes, umbrella, other
+feels-like temperature is more important than actual temperature
+always suggest clothes for body, for the legs and what to shoes wear - never suggest only for body or only for legs
+provide suggestions based on these categories: warm/light hat, long/short sleeves, winter/wind/light/waterproof jacket, soft-shell/hybrid/ski/short trousers, thermal clothing, winter/tourist shoes, umbrella, sunglasses, other
 leave out categories that aren't applicable
-do not mention location data, also don't suggest umbrella under high winds
-add precautions related to weather but only potentially dangerous ones
------------------
-answer context: "What should I wear?"
-answer format: "this, this and that"
-precaution format: "beware this, avoid that"
-full answer format: "[answer]; [precautions]"
+
+under any circumstances do not mention location data
+under any circumstances do not mention weather data
+don't suggest umbrella under high winds
+suggest thermal clothing in low temperatures ONLY
+recommend short trousers in higher temperatures
+never recommend short trousers in low temperatures
+
+answer format: Short sentence about clothes
+`.trim();
+
+const SYS_MSG_W_CLOTHES = `
+recommend what extra clothes should I wear for my trip in a short sentence.
+I provide details about my trip in the message.
+
+do not provide suggestions regarding the categories I have already chosen - recommend something else
+
+under any circumstances do not mention location data
+under any circumstances do not mention weather data
+don't suggest umbrella under high winds
+suggest thermal clothing in low temperatures ONLY
+recommend short trousers in higher temperatures
+never recommend short trousers in low temperatures
+`.trim();
+
+const SYS_MSG_WARNING = `
+mention potentially dangerous precautions related to weather and location for my trip.
+trip details are provided in the user message
+
+under any circumstances do not mention location data
+under any circumstances do not mention weather data
+do not provide clothes suggestions or precautions related to the clothing
+
+answer format: Short sentence about precautions
 `.trim();
 
 const SYS_MSG_ALERTS = `
@@ -153,27 +182,27 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 		console.log("Meteo request 1 failed");
 		return res.sendStatus(500);
 	}
-	const utcOffset = Number(req.body.utcOffset);
 
-	let modelAnswer;
-	const formData = new FormData()
-	for (let i = 0; i < req.files.length; i++) {
-		formData.append("photos", new Blob([req.files[i].buffer], {type: req.files[i].mimetype}), req.files[i].originalname)
-	}
+	let apparentTempJSON;
 	try {
-		const resp = await fetch("http://localhost:5000/upload", {
-			method: "POST",
-			body: formData
-		});
-		modelAnswer = await resp.text();
+		const resp = await fetch(`https://climathon.iblsoft.com/data/gfs-0.5deg/edr/collections/height-above-ground_4/position?coords=POINT(${lon} ${lat})&parameter-name=apparent-temperature,dewpoint-temperature&datetime=${isoDates.join(",")}&f=CoverageJSON`);
+		apparentTempJSON = await resp.json();
 	} catch {
-		console.log("Model request failed");
+		console.log("Meteo request 1 failed");
 		return res.sendStatus(500);
 	}
+
+	const utcOffset = Number(req.body.utcOffset);
+
 
 	// split meteo data into days
 	const paramCount = Object.keys(meteoJSON.parameters).length
 	const samples = chunkArray(meteoJSON.coverages, paramCount); // should separate into days by `domain.time`
+
+	const apparentTempParamCount = Object.keys(apparentTempJSON.parameters).length
+	console.log(apparentTempJSON.coverages)
+	const apparentTempSamples = chunkArray(apparentTempJSON.coverages, apparentTempParamCount); // should separate into days by `domain.time`
+
 
 	// calculate interval for calculating perticipation
 	const startDateMidnight = (new Date(startDate));
@@ -218,7 +247,9 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 		"cloud_coverage": { min: null, max: null },
 		"visibility": { min: null, max: null },
 		"ice_cover": { min: null, max: null },
-		"humidity": { min: null, max: null }
+		"humidity": { min: null, max: null },
+		"apparent_temp": { min: null, max: null },
+		"dew_point": { min: null, max: null }
 	};
 
 	for (let sample of samples) {
@@ -245,6 +276,22 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 
 		const fp = getEntry("percent-frozen-precipitation_gnd-surf").value;
 		frozenPercipitation = Math.max(frozenPercipitation || fp, fp);
+	}
+
+	for (let sample of apparentTempSamples) {
+		const getParam = name => Object.entries(apparentTempJSON.parameters).findIndex(e => e[0] == name);
+		const getEntry = param => ({ value: Object.values(sample[getParam(param)]?.ranges || {}).at(0)?.values.at(0), unit: apparentTempJSON.parameters[getParam(param)]?.unit?.symbol });
+		const v = (val, def) => val === null ? def : (isNaN(val) ? val : Number(val));
+		const minmax = (key, param) => {
+			let value = getEntry(param).value;
+			minmaxData[key] = {
+				min: Math.min(v(minmaxData[key].min, value), value),
+				max: Math.max(v(minmaxData[key].max, value), value)
+			}
+		};
+
+		minmax("apparent_temp", "apparent-temperature")
+		minmax("dew_point", "dewpoint-temperature")
 	}
 
 	// helper functions for formatting data
@@ -286,6 +333,7 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 	// compile data into readable format for ChatGPT
 	let data = {
 		"Temperature": formatMm(minmaxData.temperature, v=>Math.floor(v-273.15)) + " degrees celsius",
+		"Apparent temperature": formatMm(minmaxData.apparent_temp, v=>Math.floor(v-273.15)) + " degrees celsius",
 		"Precipitation": `${precipitation} chance of ${perticipationType}`,
 		"Wind gusts": formatMm(minmaxData.wind_gust, Math.floor) + " m/s",
 		"Pressure": formatMm({"min": pressureTypeMin, "max": pressureTypeMax}),
@@ -294,6 +342,7 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 		"Fog type": formatMm({ "min": fogTypeMin, "max": fogTypeMax }),
 		"Ice cover": minmaxData.ice_cover.max ? "yes" : null,
 		"Humidity": formatMm({"min": humidityTypeMin, "max": humidityTypeMax}),
+		"Dew point temperature": formatMm(minmaxData.dew_point, v=>Math.floor(v-273.15)) + " degrees celsius",
 		"Location": [placeClass, placeType].filter(x => x).join(", "),
 		"Activity": activity,
 	}
@@ -304,20 +353,72 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 	const contentMsg = data.map(x => x.join(": ")).join("\n");
 
 	console.log(contentMsg);
-	/*
-	//query ChatGPT to generate description
-	const gptResponse = await openai.chat.completions.create({
+
+	let gptText;
+
+	const mimetypes = ["image/png", "image/jpg", "image/jpeg"]
+	if (10 >= req.files.length && req.files.length > 0) {
+		if (req.files.every((e) => mimetypes.includes(e.mimetype) && e.size < 5000000)) {
+			let modelAnswer;
+			const formData = new FormData()
+			for (let i = 0; i < req.files.length; i++) {
+				formData.append("photos", new Blob([req.files[i].buffer], {type: req.files[i].mimetype}), req.files[i].originalname)
+			}
+			try {
+				const resp = await fetch("http://localhost:5000/upload", {
+					method: "POST",
+					body: formData
+				});
+				modelAnswer = await resp.text();
+			} catch {
+				console.log("Model request failed");
+				return res.sendStatus(500);
+			}
+			data['Chosen clothes'] = modelAnswer
+
+
+			const gptResponse = await openai.chat.completions.create({
+				messages: [
+					{ role: 'system', content: SYS_MSG_W_CLOTHES },
+					{ role: 'user', content: contentMsg }
+				],
+				model: 'gpt-3.5-turbo',
+				temperature: 0,
+			});
+		
+			gptText = gptResponse.choices[0].message.content;
+			
+		} else {
+			res.send("Wrong file")
+		}
+	} else {
+		console.log("without clothes images")
+		//query ChatGPT to generate description
+		const gptResponse = await openai.chat.completions.create({
+			messages: [
+				{ role: 'system', content: SYS_MSG_WO_CLOTHES },
+				{ role: 'user', content: contentMsg }
+			],
+			model: 'gpt-3.5-turbo',
+			temperature: 0,
+		});
+
+		gptText = gptResponse.choices[0].message.content;
+
+	}
+
+	const warningGptResponse = await openai.chat.completions.create({
 		messages: [
-			{ role: 'system', content: SYS_MSG },
+			{ role: 'system', content: SYS_MSG_WARNING },
 			{ role: 'user', content: contentMsg }
 		],
 		model: 'gpt-3.5-turbo',
 		temperature: 0,
 	});
 
-	const gptText = gptResponse.choices[0].message.content;
-	*/
-	res.send("gptText\n" + modelAnswer);
+	const warningGptText = warningGptResponse.choices[0].message.content;
+	
+	res.send(gptText + "\n" + warningGptText);
 })
 
 
