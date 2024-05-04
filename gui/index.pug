@@ -19,15 +19,15 @@ mixin inp_activityselect
 		option(value="other") Other
 	input(type="text", id="otherActivity", style="display:none;")
 
-mixin inp_gpxfile
-	input(type="file" id="gpxFile" multiple="multiple")
+mixin inp_photos
+	input(type="file" id="photosUpload" multiple="multiple")
 
 mixin placeSelect
 	.line
 		+inp_placetext
 	+inp_placeselect
 	+inp_activityselect
-	+inp_gpxfile
+	+inp_photos
 
 mixin inp_dateselect(id)
 	select(id=`${id}_dateselect` onchange=`dateSelectChange("${id}")`)

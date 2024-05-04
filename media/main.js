@@ -191,8 +191,8 @@ function getAdvice() {
         for (let param in params) {
             formData.append(param, params[param])
         }
-        for (let i = 0; i < document.getElementById("gpxFile").files.length; i++) {
-            formData.append("photos", document.getElementById("gpxFile").files[i])
+        for (let i = 0; i < document.getElementById("photosUpload").files.length; i++) {
+            formData.append("photos", document.getElementById("photosUpload").files[i])
         }
         console.log(formData)
         var queryString = Object.keys(params).map(key => key + '=' + params[key]).join('&');
