@@ -58,9 +58,8 @@ suggest appropriate clothing for my trip based on the information I provide
 keep all weather, location and activity information IMPLIED
 feels-like temperature is more important than actual temperature
 always suggest clothes for body, for the legs and what to shoes wear - never suggest only for body or only for legs
-provide suggestions based on these categories: warm/light hat, long/short sleeves, winter/wind/light/waterproof jacket, soft-shell/hybrid/ski/short trousers, thermal clothing, winter/tourist shoes, umbrella, sunglasses, other
-leave out categories that aren't applicable
 
+under any circumstances do not mention activity data
 under any circumstances do not mention location data
 under any circumstances do not mention weather data
 don't suggest umbrella under high winds
@@ -77,6 +76,7 @@ I provide details about my trip in the message.
 
 do not provide suggestions regarding the categories I have already chosen - recommend something else
 
+under any circumstances do not mention activity data
 under any circumstances do not mention location data
 under any circumstances do not mention weather data
 don't suggest umbrella under high winds
