@@ -61,12 +61,18 @@ mixin textOutput
 mixin placeMap
 	iframe(id="preview" src="https://www.openstreetmap.org/export/embed.html")
 
+mixin ollamaScript 
+	script.
+		if ("#{ollama}" == "started") {
+			alert("GPUs are expensive, which is why we are using on-demand GPU runners to run our LLM. They take ~2 minutes to boot up, so please be patient and take a look around the UI first. Thank you!")
+		}
 
 doctype html 
 html 
 	head 
 		meta(charset="UTF-8")
-		script(src="media/main.js") 
+		script(src="media/main.js")
+		+ollamaScript
 		link(rel="stylesheet" href="media/main.css")
 		link(rel="preconnect" href="https://fonts.googleapis.com")
 		link(rel="preconnect" href="https://fonts.gstatic.com" crossorigin)

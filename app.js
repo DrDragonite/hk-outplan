@@ -112,10 +112,21 @@ no matter what use maximum of 25 words.
 /* -------------------------------------------------------------------------- */
 
 // index page
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
 	// if (!checkWL(req.ip))
 	// 	return;
-	res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS});
+	try {
+		await fetch("http://127.0.0.1:11434/")
+		res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS, ollama: "ready"});
+	} catch {
+		try {
+			await fetch("https://gitlab.com/api/v4/projects/57950563/trigger/pipeline?token=" + process.env.GITLAB_RUNNER_TRIGGER_TOKEN + "&ref=master&variables[RUNNER_SCRIPT_TIMEOUT]=1h", {method: "POST"})
+			res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS, ollama: "started"});
+		} catch {
+			console.log('pipeline start failed')
+			res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS, ollama: "error"});
+		}
+	}
 });
 
 function chunkArray(array, n) {
@@ -377,47 +388,59 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 			data['Chosen clothes'] = modelAnswer
 
 
-			const gptResponse = await openai.chat.completions.create({
-				messages: [
-					{ role: 'system', content: SYS_MSG_W_CLOTHES },
-					{ role: 'user', content: contentMsg }
-				],
-				model: 'gpt-3.5-turbo',
-				temperature: 0,
-			});
-		
-			gptText = gptResponse.choices[0].message.content;
+			let response;
+			try {
+				const llmResponse = await fetch("http://127.0.0.1:11434/api/generate", {method: "POST", body: JSON.stringify({
+					model: "nous-hermes2:10.7b",
+					prompt: contentMsg,
+					stream: false,
+					system: SYS_MSG_W_CLOTHES
+				})})
+
+				response = await llmResponse.json()
+				gptText = response.response
+			} catch {
+				gptText = "LLM runner currently unavailable"
+			}
 			
 		} else {
 			res.send("Wrong file")
 		}
 	} else {
 		//query ChatGPT to generate description
-		const gptResponse = await openai.chat.completions.create({
-			messages: [
-				{ role: 'system', content: SYS_MSG_WO_CLOTHES },
-				{ role: 'user', content: contentMsg }
-			],
-			model: 'gpt-3.5-turbo',
-			temperature: 0,
-		});
+		let response;
+		try {
+			const llmResponse = await fetch("http://127.0.0.1:11434/api/generate", {method: "POST", body: JSON.stringify({
+				model: "nous-hermes2:10.7b",
+				prompt: contentMsg,
+				stream: false,
+				system: SYS_MSG_WO_CLOTHES
+			})})
 
-		gptText = gptResponse.choices[0].message.content;
-
+			response = await llmResponse.json()
+			gptText = response.response
+		} catch {
+			gptText = "LLM runner currently unavailable"
+		}
 	}
 
-	const warningGptResponse = await openai.chat.completions.create({
-		messages: [
-			{ role: 'system', content: SYS_MSG_WARNING },
-			{ role: 'user', content: contentMsg }
-		],
-		model: 'gpt-3.5-turbo',
-		temperature: 0,
-	});
+	let warningResponse;
+	let warningText;
+	try {
+		const llmResponse = await fetch("http://127.0.0.1:11434/api/generate", {method: "POST", body: JSON.stringify({
+			model: "nous-hermes2:10.7b",
+			prompt: contentMsg,
+			stream: false,
+			system: SYS_MSG_WARNING
+		})})
 
-	const warningGptText = warningGptResponse.choices[0].message.content;
-	
-	res.send(gptText + "\n" + warningGptText);
+		warningResponse = await llmResponse.json()
+		warningText = warningResponse.response;
+	} catch {
+		console.log("LLM runner currently unavailable")
+	}
+	console.log(warningText, "!!!!!")
+	res.send(gptText + "\n" + warningText);
 })
 
 
