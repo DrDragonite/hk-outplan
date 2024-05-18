@@ -394,7 +394,16 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 					model: "nous-hermes2:10.7b",
 					prompt: contentMsg,
 					stream: false,
-					system: SYS_MSG_W_CLOTHES
+					system: SYS_MSG_W_CLOTHES,
+					options: {
+						temperature: 0.5,
+						num_ctx: 4096,
+						mirostat_tau: 1.0,
+						num_predict: 64,
+						top_k: 20,
+						top_p: 0.3,
+						tfs_z: 2.0
+					}
 				})})
 
 				response = await llmResponse.json()
@@ -414,7 +423,16 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 				model: "nous-hermes2:10.7b",
 				prompt: contentMsg,
 				stream: false,
-				system: SYS_MSG_WO_CLOTHES
+				system: SYS_MSG_WO_CLOTHES,
+				options: {
+					temperature: 0.5,
+					num_ctx: 4096,
+					mirostat_tau: 1.0,
+					num_predict: 64,
+					top_k: 20,
+					top_p: 0.3,
+					tfs_z: 2.0
+				}
 			})})
 
 			response = await llmResponse.json()
@@ -431,7 +449,16 @@ app.post('/advice', upload.array('photos'), async (req, res) => {
 			model: "nous-hermes2:10.7b",
 			prompt: contentMsg,
 			stream: false,
-			system: SYS_MSG_WARNING
+			system: SYS_MSG_WARNING,
+			options: {
+				temperature: 0.5,
+				num_ctx: 4096,
+				mirostat_tau: 1.0,
+				num_predict: 64,
+				top_k: 20,
+				top_p: 0.3,
+				tfs_z: 2.0
+			}
 		})})
 
 		warningResponse = await llmResponse.json()
