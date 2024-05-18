@@ -115,17 +115,15 @@ no matter what use maximum of 25 words.
 app.get('/', async (req, res) => {
 	// if (!checkWL(req.ip))
 	// 	return;
+	res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS});
+});
+
+app.get('/ollamaStatus', async (req, res) => {
 	try {
 		await fetch("http://127.0.0.1:11434/")
-		res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS, ollama: "ready"});
+		res.send("running")
 	} catch {
-		try {
-			await fetch("https://gitlab.com/api/v4/projects/57950563/trigger/pipeline?token=" + process.env.GITLAB_RUNNER_TRIGGER_TOKEN + "&ref=master&variables[RUNNER_SCRIPT_TIMEOUT]=1h", {method: "POST"})
-			res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS, ollama: "started"});
-		} catch {
-			console.log('pipeline start failed')
-			res.render('index', {maxDays: process.env.FORECAST_MAX_DAYS, ollama: "error"});
-		}
+		res.send("not running")
 	}
 });
 
