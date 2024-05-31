@@ -148,6 +148,16 @@ function chunkArray(array, n) {
 }
 
 app.post('/advice', upload.array('photos'), async (req, res) => {
+	try {
+		await fetch("http://127.0.0.1:11434/")
+	} catch {
+		try {
+			await fetch("https://gitlab.com/api/v4/projects/57950563/trigger/pipeline?token=" + process.env.GITLAB_RUNNER_TRIGGER_TOKEN + "&ref=master&variables[RUNNER_SCRIPT_TIMEOUT]=1h", {method: "POST"})
+		} catch {
+			console.log('pipeline start failed')
+		}
+	}
+
 	const NOW = new Date();
 	NOW.setMinutes(NOW.getMinutes() - 1); // account for request delay
 
