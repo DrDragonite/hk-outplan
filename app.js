@@ -701,40 +701,77 @@ app.get("/alerts", async (req, res) => {
 	const alerts = [];
 
 	if (hainesJSON.ranges["haines-index_gnd-surf"].values[0] > 5) {
-		const gptResponse = await openai.chat.completions.create({
-			messages: [
-				{ role: 'system', content: SYS_MSG_ALERTS },
-				{ role: 'user', content: `
-					Haines Index is high, pay attention when setting fire as it can spread rapidly
-				` }
-			],
-			model: 'gpt-3.5-turbo',
-			temperature: 0,
-		});
-		alerts.push({
-			"title": "High Haines Index",
-			"description": gptResponse.choices[0].message.content,
-			"severity": "advisory"
-		});
+		let response;
+		try {
+			const llmResponse = await fetch("http://127.0.0.1:11434/api/generate", {method: "POST", body: JSON.stringify({
+				model: "nous-hermes2:10.7b",
+				prompt: `Haines Index is high, pay attention when setting fire as it can spread rapidly`,
+				stream: false,
+				system: SYS_MSG_ALERTS,
+				options: {
+					temperature: 0.5,
+					num_ctx: 4096,
+					mirostat_tau: 1.0,
+					num_predict: 64,
+					top_k: 20,
+					top_p: 0.3,
+					tfs_z: 2.0
+				}
+			})})
+
+			response = await llmResponse.json()
+			gptText = response.response
+			alerts.push({
+				"title": "High Haines Index",
+				"description": response.response,
+				"severity": "advisory"
+			});
+		} catch {
+			alerts.push({
+				"title": "High Haines Index",
+				"description": "LLM runner currently unavailable",
+				"severity": "advisory"
+			});
+		}
 	}
 
 	// capture unique alerts
 	var alertNames = new Set(alertJSON.alerts.map(obj => obj.title));
 	for (const alertName of alertNames) {
 		var alert = alertJSON.alerts.find(obj => obj.title == alertName);
-		const gptResponse = await openai.chat.completions.create({
-			messages: [
-				{ role: 'system', content: SYS_MSG_ALERTS },
-				{ role: 'user', content: alert.description }
-			],
-			model: 'gpt-3.5-turbo',
-			temperature: 0,
-		});
-		alerts.push({
-			"title": alert.title,
-			"description": gptResponse.choices[0].message.content,
-			"severity": alert.severity
-		});
+		let response;
+		try {
+			const llmResponse = await fetch("http://127.0.0.1:11434/api/generate", {method: "POST", body: JSON.stringify({
+				model: "nous-hermes2:10.7b",
+				prompt: alert.description,
+				stream: false,
+				system: SYS_MSG_ALERTS,
+				options: {
+					temperature: 0.5,
+					num_ctx: 4096,
+					mirostat_tau: 1.0,
+					num_predict: 64,
+					top_k: 20,
+					top_p: 0.3,
+					tfs_z: 2.0
+				}
+			})})
+
+			response = await llmResponse.json()
+			gptText = response.response
+			alerts.push({
+				"title": alert.title,
+				"description": response.response,
+				"severity": alert.severity
+			});
+		} catch {
+			alerts.push({
+				"title": alert.title,
+				"description": "LLM runner currently unavailable",
+				"severity": alert.severity
+			});
+		}
+
 	};
 
 	res.send({content:alerts});
